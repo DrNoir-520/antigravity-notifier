@@ -217,8 +217,58 @@ class NotificationService {
     }
 
     /**
+     * Get configured delay in seconds before sending push notification for a pending question.
+     * Defaults to 4 seconds, or reads from config/environment variable QUESTION_NOTIFICATION_DELAY_SECONDS.
+     * @returns {number}
+     */
+    getQuestionNotificationDelaySeconds() {
+        if (typeof this.config.questionNotificationDelaySeconds === 'number' && this.config.questionNotificationDelaySeconds >= 0) {
+            return this.config.questionNotificationDelaySeconds;
+        }
+        if (typeof this.config.questionNotificationDelayMs === 'number' && this.config.questionNotificationDelayMs >= 0) {
+            return Math.floor(this.config.questionNotificationDelayMs / 1000);
+        }
+        if (process.env.QUESTION_NOTIFICATION_DELAY_SECONDS !== undefined && !isNaN(Number(process.env.QUESTION_NOTIFICATION_DELAY_SECONDS))) {
+            return Math.max(0, Number(process.env.QUESTION_NOTIFICATION_DELAY_SECONDS));
+        }
+        return 4;
+    }
+
+    /**
+     * Get configured delay in milliseconds before sending push notification for a pending question.
+     * @param {number} [defaultFallbackMs=4000]
+     * @returns {number}
+     */
+    getQuestionNotificationDelayMs(defaultFallbackMs = 4000) {
+        if (typeof this.config.questionNotificationDelaySeconds === 'number' && this.config.questionNotificationDelaySeconds >= 0) {
+            return this.config.questionNotificationDelaySeconds * 1000;
+        }
+        if (typeof this.config.questionNotificationDelayMs === 'number' && this.config.questionNotificationDelayMs >= 0) {
+            return this.config.questionNotificationDelayMs;
+        }
+        if (process.env.QUESTION_NOTIFICATION_DELAY_SECONDS !== undefined && !isNaN(Number(process.env.QUESTION_NOTIFICATION_DELAY_SECONDS))) {
+            return Math.max(0, Number(process.env.QUESTION_NOTIFICATION_DELAY_SECONDS) * 1000);
+        }
+        return defaultFallbackMs;
+    }
+
+    /**
+     * Programmatically update the question notification delay in seconds.
+     * @param {number} seconds
+     * @returns {number}
+     */
+    setQuestionNotificationDelaySeconds(seconds) {
+        const val = Math.max(0, Number(seconds) || 0);
+        this.config.questionNotificationDelaySeconds = val;
+        if (this.onConfigChange) {
+            try { this.onConfigChange(this.config); } catch (e) {}
+        }
+        return val;
+    }
+
+    /**
      * Get current push notification settings.
-     * @returns {{ ok: boolean, enabled: boolean, pushUrl: string, autoApprovePlan: boolean, subscriptionsCount: number }}
+     * @returns {{ ok: boolean, enabled: boolean, pushUrl: string, autoApprovePlan: boolean, questionNotificationDelaySeconds: number, subscriptionsCount: number }}
      */
     getSettings() {
         return {
@@ -226,6 +276,7 @@ class NotificationService {
             enabled: Boolean(this.config.pushNotificationEnabled),
             pushUrl: this.config.pushNotificationUrl || '',
             autoApprovePlan: this.isAutoApprovalEnabled(),
+            questionNotificationDelaySeconds: this.getQuestionNotificationDelaySeconds(),
             subscriptionsCount: this.subscriptions.size
         };
     }
@@ -236,16 +287,23 @@ class NotificationService {
      * @param {boolean} [payload.enabled]
      * @param {string} [payload.pushUrl]
      * @param {boolean} [payload.autoApprovePlan]
-     * @returns {{ ok: boolean, enabled: boolean, pushUrl: string, autoApprovePlan: boolean }}
+     * @param {number} [payload.questionNotificationDelaySeconds]
+     * @returns {{ ok: boolean, enabled: boolean, pushUrl: string, autoApprovePlan: boolean, questionNotificationDelaySeconds: number }}
      */
     updateSettings(payload = {}) {
-        const { enabled, pushUrl, autoApprovePlan } = payload;
+        const { enabled, pushUrl, autoApprovePlan, questionNotificationDelaySeconds } = payload;
         this.config.pushNotificationEnabled = Boolean(enabled);
         if (typeof pushUrl === 'string') {
             this.config.pushNotificationUrl = pushUrl.trim();
         }
         if (typeof autoApprovePlan === 'boolean') {
             this.config.autoApprovePlan = autoApprovePlan;
+        }
+        if (questionNotificationDelaySeconds !== undefined) {
+            const sec = Number(questionNotificationDelaySeconds);
+            if (!isNaN(sec) && sec >= 0) {
+                this.config.questionNotificationDelaySeconds = sec;
+            }
         }
         this.gateway.setConfig(this.config);
 
@@ -259,7 +317,8 @@ class NotificationService {
             ok: true,
             enabled: this.config.pushNotificationEnabled,
             pushUrl: this.config.pushNotificationUrl || '',
-            autoApprovePlan: this.isAutoApprovalEnabled()
+            autoApprovePlan: this.isAutoApprovalEnabled(),
+            questionNotificationDelaySeconds: this.getQuestionNotificationDelaySeconds()
         };
     }
 
@@ -645,7 +704,10 @@ class NotificationService {
             } else if (!taskState.settlingTimer) {
                 taskState.status = 'settling';
                 const targetConvId = convId;
-                const delay = typeof settlingDelayMs === 'number' ? settlingDelayMs : 4000;
+                const defaultSettlingDelay = typeof settlingDelayMs === 'number' ? settlingDelayMs : 4000;
+                const delay = hasPendingQuestion
+                    ? (typeof settlingDelayMs === 'number' ? settlingDelayMs : this.getQuestionNotificationDelayMs(defaultSettlingDelay))
+                    : defaultSettlingDelay;
                 console.log(`⏳ [Push-Debug] Task settling timer scheduled (${delay}ms) for "${targetConvId}". Signature: ${targetSignature}`);
 
                 taskState.settlingTimer = setTimeout(async () => {

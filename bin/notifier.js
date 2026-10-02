@@ -104,6 +104,19 @@ function runSetPush(newUrl) {
     console.log(`   Push URL: ${updated.pushUrl}`);
 }
 
+function runSetDelay(secondsStr) {
+    const sec = Number(secondsStr);
+    if (isNaN(sec) || sec < 0) {
+        console.error('❌ Error: Please provide a valid non-negative number of seconds.');
+        console.log('Example: node bin/notifier.js set-delay 30');
+        process.exit(1);
+    }
+    const updated = configManager.updateSettings({ questionNotificationDelaySeconds: sec });
+    console.log('✅ Question notification delay updated successfully:');
+    console.log(`   Config saved to: ${configManager.globalConfigFile}`);
+    console.log(`   Question Delay: ${updated.questionNotificationDelaySeconds}s (delay before pushing unanswered questions)`);
+}
+
 function runStatus() {
     const config = configManager.getSettings();
     console.log('====================================');
@@ -112,6 +125,7 @@ function runStatus() {
     console.log(`• Config file:    ${configManager.globalConfigFile}`);
     console.log(`• Push URL:       ${config.pushUrl || '(Not configured)'}`);
     console.log(`• Enabled:        ${config.enabled !== false ? 'Yes' : 'No'}`);
+    console.log(`• Question Delay: ${config.questionNotificationDelaySeconds !== undefined ? config.questionNotificationDelaySeconds : 4}s (wait before push if unanswered)`);
     console.log(`• Auto-Approve:   ${config.autoApprovePlan ? 'Enabled (Silence plan proceed)' : 'Normal (Notify on proceed)'}`);
 
     // Check if task scheduler task exists
@@ -172,6 +186,7 @@ Commands:
   background          Launch stealth background daemon immediately
   test [pushUrl]      Send a test notification to your mobile device
   set-push <pushUrl>  Set or update the push notification URL / Key
+  set-delay <sec>     Set delay (seconds) to wait before notifying unanswered questions (e.g. 30)
   status              Check current configuration and service status
   install             Install Windows Scheduled Task for auto-start at logon
   uninstall           Remove Windows Scheduled Task
@@ -179,6 +194,7 @@ Commands:
 
 Examples:
   node bin/notifier.js set-push "qmsg://c1b887b5f9ed73ea0fa1704ed29064bf496bdf33"
+  node bin/notifier.js set-delay 30
   node bin/notifier.js test
   node bin/notifier.js install
 `);
@@ -199,6 +215,9 @@ switch (command) {
         break;
     case 'set-push':
         runSetPush(args[1]);
+        break;
+    case 'set-delay':
+        runSetDelay(args[1]);
         break;
     case 'status':
         runStatus();

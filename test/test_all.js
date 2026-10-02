@@ -189,6 +189,31 @@ async function runAllTests() {
         console.log('  ✅ [PASS] Monitor candidate port discovery verified');
     }
 
+    // ---------------------------------------------------------------------------
+    // Test Suite 6: Question Notification Delay Configuration & Settle Delay
+    // ---------------------------------------------------------------------------
+    console.log('\nTest Suite 6: Question Notification Delay Configuration & Settle Delay');
+    {
+        const service = new NotificationService({
+            config: { pushNotificationEnabled: true, questionNotificationDelaySeconds: 15 }
+        });
+
+        assert.strictEqual(service.getQuestionNotificationDelaySeconds(), 15,
+            'Should return configured delay in seconds');
+        assert.strictEqual(service.getQuestionNotificationDelayMs(), 15000,
+            'Should return configured delay in milliseconds');
+
+        service.setQuestionNotificationDelaySeconds(45);
+        assert.strictEqual(service.getQuestionNotificationDelaySeconds(), 45,
+            'setQuestionNotificationDelaySeconds should update delay');
+
+        const updated = service.updateSettings({ questionNotificationDelaySeconds: 30 });
+        assert.strictEqual(updated.questionNotificationDelaySeconds, 30,
+            'updateSettings should update questionNotificationDelaySeconds');
+
+        console.log('  ✅ [PASS] Question notification delay configuration verified');
+    }
+
     console.log('\n🎉 ALL ANTIGRAVITY NOTIFIER UNIT TESTS PASSED SUCCESSFULLY!\n');
 }
 

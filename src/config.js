@@ -47,13 +47,17 @@ class ConfigManager {
         // 3. Fallback: inherit pushUrl from AGY project if available
         let inheritedPushUrl = '';
         let inheritedEnabled = true;
+        let inheritedQuestionDelay = 4;
         if (fs.existsSync(this.agyConfigFile)) {
             try {
                 const content = fs.readFileSync(this.agyConfigFile, 'utf8');
                 const agyCfg = JSON.parse(content);
-                if (agyCfg && agyCfg.pushNotificationUrl) {
-                    inheritedPushUrl = agyCfg.pushNotificationUrl;
-                    inheritedEnabled = agyCfg.pushNotificationEnabled !== false;
+                if (agyCfg) {
+                    if (agyCfg.pushNotificationUrl) inheritedPushUrl = agyCfg.pushNotificationUrl;
+                    if (agyCfg.pushNotificationEnabled !== undefined) inheritedEnabled = agyCfg.pushNotificationEnabled !== false;
+                    if (agyCfg.questionNotificationDelaySeconds !== undefined) {
+                        inheritedQuestionDelay = Math.max(0, Number(agyCfg.questionNotificationDelaySeconds) || 0);
+                    }
                 }
             } catch (e) {}
         }
@@ -62,6 +66,7 @@ class ConfigManager {
             enabled: inheritedEnabled,
             pushUrl: inheritedPushUrl,
             autoApprovePlan: false,
+            questionNotificationDelaySeconds: inheritedQuestionDelay,
             pollIntervalMs: 1500,
             idlePollIntervalMs: 4000
         };
@@ -95,6 +100,12 @@ class ConfigManager {
         if (payload.enabled !== undefined) cur.enabled = Boolean(payload.enabled);
         if (payload.pushUrl !== undefined) cur.pushUrl = String(payload.pushUrl).trim();
         if (payload.autoApprovePlan !== undefined) cur.autoApprovePlan = Boolean(payload.autoApprovePlan);
+        if (payload.questionNotificationDelaySeconds !== undefined) {
+            const sec = Number(payload.questionNotificationDelaySeconds);
+            if (!isNaN(sec) && sec >= 0) {
+                cur.questionNotificationDelaySeconds = sec;
+            }
+        }
         this.save(cur);
         return cur;
     }
