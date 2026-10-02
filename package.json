@@ -1,0 +1,32 @@
+{
+  "name": "antigravity-notifier",
+  "version": "1.0.0",
+  "description": "Lightweight, stealth background push notification daemon for Antigravity AI IDE",
+  "main": "src/index.js",
+  "bin": {
+    "antigravity-notifier": "bin/notifier.js"
+  },
+  "scripts": {
+    "start": "node bin/notifier.js start",
+    "daemon": "node bin/notifier.js daemon",
+    "test": "node test/test_all.js",
+    "install-service": "powershell -ExecutionPolicy Bypass -File scripts/install-service.ps1",
+    "uninstall-service": "powershell -ExecutionPolicy Bypass -File scripts/uninstall-service.ps1"
+  },
+  "keywords": [
+    "antigravity",
+    "push-notification",
+    "qmsg",
+    "bark",
+    "ntfy",
+    "serverchan",
+    "wecom",
+    "daemon",
+    "stealth"
+  ],
+  "author": "peng9627",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
