@@ -277,11 +277,24 @@ class AntigravityMonitor {
                     pendingPlanProceed = true;
                 }
 
+                // Cancellation discovery (User cancelled agent execution)
+                let isCancelled = false;
+                const cancelEl = document.querySelector('.cancelled, .cancellation-notice, [data-cancelled], .user-cancelled, .agent-cancelled');
+                if (cancelEl && cancelEl.offsetParent !== null) {
+                    isCancelled = true;
+                } else {
+                    const chatContainer = document.querySelector('[data-testid="conversation-view"], .chat-container, main, body');
+                    if (chatContainer && /user cancelled agent execution|cancelled agent execution|agent execution cancelled/i.test(chatContainer.innerText || '')) {
+                        isCancelled = true;
+                    }
+                }
+
                 return {
                     convId,
                     convTitle,
                     projectName,
                     isWorking,
+                    isCancelled,
                     pendingQuestion,
                     pendingPlanProceed
                 };
@@ -323,6 +336,7 @@ class AntigravityMonitor {
                     convTitle,
                     projectName,
                     isWorking: state.isWorking,
+                    isCancelled: Boolean(state.isCancelled),
                     pendingQuestion: state.pendingQuestion,
                     pendingPlanProceed: state.pendingPlanProceed,
                     priorTurns: []

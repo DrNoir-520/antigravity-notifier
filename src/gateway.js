@@ -368,6 +368,7 @@ async function deliverPushNotification(options = {}, fetchFn = global.fetch) {
         aiOutput,
         completedAt,
         statusText: explicitStatusText,
+        isCancelled,
         isPlanApprovalPending,
         isQuestionPending
     } = options;
@@ -397,7 +398,7 @@ async function deliverPushNotification(options = {}, fetchFn = global.fetch) {
 
     const resolvedStatus = (explicitStatusText && typeof explicitStatusText === 'string' && explicitStatusText.trim())
         ? explicitStatusText.trim()
-        : (isQuestionPending ? '待输入' : (isPlanApprovalPending ? '待确认' : '已完成'));
+        : (isCancelled ? '已中断' : (isQuestionPending ? '待输入' : (isPlanApprovalPending ? '待确认' : '已完成')));
 
     // Formatted notification title: ConversationName(ProjectName)Status HH:mm
     const fullTitle = title || `${resolvedConvTitle}（${resolvedProjectName}）${resolvedStatus} ${timeHm}`;
@@ -612,7 +613,7 @@ class NotificationGateway {
         const projectName = rawProject || '独立对话';
         const completedAt = options.completedAt || new Date();
         const timeHm = formatNotificationTime(completedAt);
-        const status = options.statusText || (options.isQuestionPending ? '待输入' : (options.isPlanApprovalPending ? '待确认' : '已完成'));
+        const status = options.statusText || (options.isCancelled ? '已中断' : (options.isQuestionPending ? '待输入' : (options.isPlanApprovalPending ? '待确认' : '已完成')));
         const title = options.title || `${convTitle}（${projectName}）${status} ${timeHm}`;
         return deliverPushNotification({
             url,
@@ -620,11 +621,12 @@ class NotificationGateway {
             convTitle,
             projectName,
             completedAt,
+            isCancelled: options.isCancelled,
             convId: options.convId || null
         }, this.fetchFn);
     }
 
-    async notifyTaskEvent({ conv, tree, turns, taskName, summary, userInput, aiOutput, completedAt, isPlanApprovalPending, isQuestionPending, title, projectName, convTitle: explicitConvTitle, convId: explicitConvId, statusText: explicitStatusText }) {
+    async notifyTaskEvent({ conv, tree, turns, taskName, summary, userInput, aiOutput, completedAt, isCancelled, isPlanApprovalPending, isQuestionPending, title, projectName, convTitle: explicitConvTitle, convId: explicitConvId, statusText: explicitStatusText }) {
         const convTitle = explicitConvTitle || getConversationTitle(conv, tree, turns);
         const rawProjectName = (typeof projectName === 'string' && projectName.trim())
             ? projectName.trim()
@@ -632,7 +634,7 @@ class NotificationGateway {
         const resolvedProjectName = rawProjectName || '独立对话';
         const taskCompletedAt = completedAt || new Date();
         const timeHm = formatNotificationTime(taskCompletedAt);
-        const status = explicitStatusText || (isQuestionPending ? '待输入' : (isPlanApprovalPending ? '待确认' : '已完成'));
+        const status = explicitStatusText || (isCancelled ? '已中断' : (isQuestionPending ? '待输入' : (isPlanApprovalPending ? '待确认' : '已完成')));
 
         const resolvedTitle = title || `${convTitle}（${resolvedProjectName}）${status} ${timeHm}`;
         const convId = explicitConvId !== undefined ? explicitConvId : (conv ? conv.id : null);

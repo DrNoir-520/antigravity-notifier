@@ -490,6 +490,16 @@ class NotificationService {
     }
 
     /**
+     * Mark a conversation as manually cancelled/interrupted.
+     * @param {string} convId
+     */
+    markConversationCancelled(convId) {
+        if (!convId || convId === 'default') return;
+        const taskState = this.getConvTaskState(convId);
+        taskState.isCancelled = true;
+    }
+
+    /**
      * Evaluate task execution lifecycle for a specific conversation.
      * Implements strict deduplication, settling guards, and multi-channel delivery.
      * @param {Object} options
@@ -502,6 +512,7 @@ class NotificationService {
         isWorking,
         hasPendingProceed,
         pendingQuestion,
+        isCancelled,
         isCurrentActiveConv,
         sendNotificationFn,
         settlingDelayMs,
@@ -511,6 +522,9 @@ class NotificationService {
 
         const liveContext = context || this.getCurrentState();
         const taskState = this.getConvTaskState(convId);
+        if (isCancelled) {
+            taskState.isCancelled = true;
+        }
         const effTurns = turns || [];
         let lastUserTurn = null;
         let lastModelTurn = null;
@@ -535,6 +549,7 @@ class NotificationService {
             }
             taskState.status = 'running';
             taskState.hasObservedWork = true;
+            taskState.isCancelled = false;
             if (taskState.settlingTimer) {
                 console.log(`⚡ [Push-Debug] Resetting settling timer for "${convId}" as work has resumed.`);
                 clearTimeout(taskState.settlingTimer);
@@ -546,7 +561,9 @@ class NotificationService {
             }
         } else if (taskState.status === 'running' || (taskState.hasObservedWork && taskState.status !== 'settling')) {
             const hasPendingQuestion = Boolean(pendingQuestion);
+            const isTaskCancelled = Boolean(taskState.isCancelled);
             const modelHasOutput = Boolean(
+                isTaskCancelled ||
                 lastModelTurn && (
                     (typeof lastModelTurn.text === 'string' && lastModelTurn.text.trim().length > 0) ||
                     (Array.isArray(lastModelTurn.tools) && lastModelTurn.tools.length > 0) ||
@@ -682,7 +699,9 @@ class NotificationService {
                         ? Boolean(currentHasPendingProceed)
                         : freshTurns.some(t => t.role === 'assistant' && Array.isArray(t.artifacts) && t.artifacts.some(a => a.canProceed && !a.proceeded));
 
+                    const isTaskCancelled = Boolean(taskState.isCancelled);
                     const freshModelHasOutput = Boolean(
+                        isTaskCancelled ||
                         freshModel && (
                             (typeof freshModel.text === 'string' && freshModel.text.trim().length > 0) ||
                             (Array.isArray(freshModel.tools) && freshModel.tools.length > 0) ||
@@ -699,7 +718,7 @@ class NotificationService {
                         return;
                     }
 
-                    if (Array.isArray(freshModel.tools) && freshModel.tools.some(t => t.status === 'running')) {
+                    if (!isTaskCancelled && Array.isArray(freshModel.tools) && freshModel.tools.some(t => t.status === 'running')) {
                         console.log(`⚠️ [Push-Debug] Guard 3b: assistant tool still running for "${targetConvId}".`);
                         taskState.status = 'running';
                         if (isStillActiveInDom && this.onTaskStateChange) this.onTaskStateChange(taskState);
@@ -709,11 +728,13 @@ class NotificationService {
                     const freshUId = (freshUser && freshUser.id) ? freshUser.id : ('u_' + freshUIdx);
                     const freshMId = (freshModel && freshModel.id) ? freshModel.id : ('m_' + freshMIdx);
 
-                    const freshSignature = isQuestionPending
-                        ? (freshUId + '::' + freshMId + '::question_pending')
-                        : (isPlanApprovalPending
-                            ? (freshUId + '::' + freshMId + '::proceed_pending')
-                            : (freshUId + '::' + freshMId));
+                    const freshSignature = isTaskCancelled
+                        ? (freshUId + '::' + freshMId + '::cancelled')
+                        : (isQuestionPending
+                            ? (freshUId + '::' + freshMId + '::question_pending')
+                            : (isPlanApprovalPending
+                                ? (freshUId + '::' + freshMId + '::proceed_pending')
+                                : (freshUId + '::' + freshMId)));
 
                     // Guard 4: Deduplication check
                     if (taskState.lastNotifiedTurnSignature && taskState.lastNotifiedTurnSignature === freshSignature) {
@@ -730,7 +751,7 @@ class NotificationService {
                         freshMId !== taskState.priorModelTurnId
                     );
 
-                    if (!isPlanApprovalPending && !isQuestionPending && !freshIsExecutionPhase) {
+                    if (!isTaskCancelled && !isPlanApprovalPending && !isQuestionPending && !freshIsExecutionPhase) {
                         if (taskState.lastNotifiedUserTurnId && taskState.lastNotifiedUserTurnId === freshUId) {
                             console.log(`⚠️ [Push-Debug] Guard 4b: user turn already notified for "${targetConvId}":`, freshUId);
                             taskState.status = 'idle';
@@ -783,7 +804,7 @@ class NotificationService {
                     const completedTime = new Date();
                     const timeHm = formatNotificationTime(completedTime);
 
-                    const status = isQuestionPending ? '待输入' : (isPlanApprovalPending ? '待确认' : '已完成');
+                    const status = isTaskCancelled ? '已中断' : (isQuestionPending ? '待输入' : (isPlanApprovalPending ? '待确认' : '已完成'));
                     const pushTitle = `${convTitle}（${projectName}）${status} ${timeHm}`;
 
                     console.log(`🔔 [Push] Task event genuinely settled for "${convTitle}" [Project: ${projectName}, Status: ${status}] (convId: ${targetConvId}). Sending notification.`);
@@ -794,10 +815,12 @@ class NotificationService {
                         projectName,
                         completedAt: completedTime,
                         convId: targetConvId,
+                        isCancelled: isTaskCancelled,
                         isPlanApprovalPending,
                         isQuestionPending,
                         statusText: status
                     };
+                    taskState.isCancelled = false;
 
                     const dispatchFn = typeof sendNotificationFn === 'function'
                         ? sendNotificationFn

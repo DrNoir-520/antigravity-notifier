@@ -102,7 +102,19 @@ async function runAllTests() {
         assert(decodeURIComponent(capturedCall.opts.body).includes('代码重构（AGY）待确认'),
             'Title should format with 待确认 status');
 
-        console.log('  ✅ [PASS] Titles formatted with accurate status (已完成 / 待输入 / 待确认)');
+        // 4. Cancelled status
+        await gateway.notifyTaskEvent({
+            convTitle: '代码重构',
+            projectName: 'AGY',
+            isCancelled: true,
+            isPlanApprovalPending: false,
+            isQuestionPending: false,
+            message: '用户中断了任务'
+        });
+        assert(decodeURIComponent(capturedCall.opts.body).includes('代码重构（AGY）已中断'),
+            'Title should format with 已中断 status');
+
+        console.log('  ✅ [PASS] Titles formatted with accurate status (已完成 / 待输入 / 待确认 / 已中断)');
     }
 
     // ---------------------------------------------------------------------------
