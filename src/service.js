@@ -292,7 +292,9 @@ class NotificationService {
      */
     updateSettings(payload = {}) {
         const { enabled, pushUrl, autoApprovePlan, questionNotificationDelaySeconds } = payload;
-        this.config.pushNotificationEnabled = Boolean(enabled);
+        if (typeof enabled === 'boolean') {
+            this.config.pushNotificationEnabled = enabled;
+        }
         if (typeof pushUrl === 'string') {
             this.config.pushNotificationUrl = pushUrl.trim();
         }
