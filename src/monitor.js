@@ -284,7 +284,7 @@ class AntigravityMonitor {
                     isCancelled = true;
                 } else {
                     const chatContainer = document.querySelector('[data-testid="conversation-view"], .chat-container, main, body');
-                    if (chatContainer && /user cancelled agent execution|cancelled agent execution|agent execution cancelled/i.test(chatContainer.innerText || '')) {
+                    if (chatContainer && /user cancelled agent execution|cancelled agent execution|agent execution cancelled/i.test(chatContainer.innerText || chatContainer.textContent || '')) {
                         isCancelled = true;
                     }
                 }

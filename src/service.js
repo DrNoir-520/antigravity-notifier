@@ -583,15 +583,17 @@ class NotificationService {
             );
             const isNewRound = isNewUserTurn || isExecutionPhase;
 
-            const hasValidRound = Boolean(
-                lastUserTurn &&
-                lastModelTurn &&
-                lastModelIdx > lastUserIdx &&
-                !lastModelTurn.isThinking &&
-                modelHasOutput &&
-                isNewRound &&
-                (!Array.isArray(lastModelTurn.tools) || !lastModelTurn.tools.some(t => t.status === 'running'))
-            );
+            const hasValidRound = isTaskCancelled
+                ? Boolean(lastUserTurn)
+                : Boolean(
+                    lastUserTurn &&
+                    lastModelTurn &&
+                    lastModelIdx > lastUserIdx &&
+                    !lastModelTurn.isThinking &&
+                    modelHasOutput &&
+                    isNewRound &&
+                    (!Array.isArray(lastModelTurn.tools) || !lastModelTurn.tools.some(t => t.status === 'running'))
+                );
 
             if (!hasValidRound) {
                 // Keep waiting until assistant completes turn or valid round exists
@@ -604,16 +606,18 @@ class NotificationService {
             const uId = (lastUserTurn && lastUserTurn.id) ? lastUserTurn.id : ('u_' + lastUserIdx);
             const mId = (lastModelTurn && lastModelTurn.id) ? lastModelTurn.id : ('m_' + lastModelIdx);
 
-            const targetSignature = hasPendingQuestion
-                ? (uId + '::' + mId + '::question_pending')
-                : (hasPendingProceed
-                    ? (uId + '::' + mId + '::proceed_pending')
-                    : (uId + '::' + mId));
+            const targetSignature = isTaskCancelled
+                ? (uId + '::' + mId + '::cancelled')
+                : (hasPendingQuestion
+                    ? (uId + '::' + mId + '::question_pending')
+                    : (hasPendingProceed
+                        ? (uId + '::' + mId + '::proceed_pending')
+                        : (uId + '::' + mId)));
 
             let isAlreadyNotified = false;
             if (taskState.lastNotifiedTurnSignature && taskState.lastNotifiedTurnSignature === targetSignature) {
                 isAlreadyNotified = true;
-            } else if (!hasPendingProceed && !hasPendingQuestion && !isExecutionPhase) {
+            } else if (!isTaskCancelled && !hasPendingProceed && !hasPendingQuestion && !isExecutionPhase) {
                 if (taskState.lastNotifiedUserTurnId && taskState.lastNotifiedUserTurnId === uId) {
                     isAlreadyNotified = true;
                 }
@@ -711,11 +715,20 @@ class NotificationService {
                         )
                     );
 
-                    if (!freshUser || !freshModel || freshMIdx <= freshUIdx || freshModel.isThinking || !freshModelHasOutput) {
-                        console.log(`⚠️ [Push-Debug] Guard 3: fresh turns validation failed for "${targetConvId}".`);
-                        taskState.status = 'idle';
-                        if (isStillActiveInDom && this.onTaskStateChange) this.onTaskStateChange(taskState);
-                        return;
+                    if (!isTaskCancelled) {
+                        if (!freshUser || !freshModel || freshMIdx <= freshUIdx || freshModel.isThinking || !freshModelHasOutput) {
+                            console.log(`⚠️ [Push-Debug] Guard 3: fresh turns validation failed for "${targetConvId}".`);
+                            taskState.status = 'idle';
+                            if (isStillActiveInDom && this.onTaskStateChange) this.onTaskStateChange(taskState);
+                            return;
+                        }
+                    } else {
+                        if (!freshUser) {
+                            console.log(`⚠️ [Push-Debug] Guard 3: fresh user turn missing for cancelled "${targetConvId}".`);
+                            taskState.status = 'idle';
+                            if (isStillActiveInDom && this.onTaskStateChange) this.onTaskStateChange(taskState);
+                            return;
+                        }
                     }
 
                     if (!isTaskCancelled && Array.isArray(freshModel.tools) && freshModel.tools.some(t => t.status === 'running')) {
@@ -726,7 +739,7 @@ class NotificationService {
                     }
 
                     const freshUId = (freshUser && freshUser.id) ? freshUser.id : ('u_' + freshUIdx);
-                    const freshMId = (freshModel && freshModel.id) ? freshModel.id : ('m_' + freshMIdx);
+                    const freshMId = (freshModel && freshModel.id) ? freshModel.id : (freshMIdx >= 0 ? ('m_' + freshMIdx) : 'm_cancelled');
 
                     const freshSignature = isTaskCancelled
                         ? (freshUId + '::' + freshMId + '::cancelled')
