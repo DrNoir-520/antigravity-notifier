@@ -279,13 +279,30 @@ class AntigravityMonitor {
 
                 // Cancellation discovery (User cancelled agent execution)
                 let isCancelled = false;
-                const cancelEl = document.querySelector('.cancelled, .cancellation-notice, [data-cancelled], .user-cancelled, .agent-cancelled');
-                if (cancelEl && cancelEl.offsetParent !== null) {
-                    isCancelled = true;
-                } else {
-                    const chatContainer = document.querySelector('[data-testid="conversation-view"], .chat-container, main, body');
-                    if (chatContainer && /user cancelled agent execution|cancelled agent execution|agent execution cancelled/i.test(chatContainer.innerText || chatContainer.textContent || '')) {
+                if (!pendingQuestion && !pendingPlanProceed) {
+                    const cancelEl = document.querySelector('.cancelled, .cancellation-notice, [data-cancelled], .user-cancelled, .agent-cancelled');
+                    if (cancelEl && cancelEl.offsetParent !== null) {
                         isCancelled = true;
+                    } else {
+                        const view = document.querySelector('[data-testid="conversation-view"]');
+                        const activeMsgContainer = view ? (view.querySelector('[data-testid="autoscroll-viewport"] .relative.flex.flex-col.gap-y-3, [data-testid="autoscroll-viewport"] .relative.flex.flex-col, .relative.flex.flex-col.gap-y-3') || view.querySelector('.relative.flex.flex-col')) : null;
+                        if (activeMsgContainer && activeMsgContainer.children.length > 0) {
+                            const lastRow = activeMsgContainer.children[activeMsgContainer.children.length - 1];
+                            if (lastRow) {
+                                const walker = document.createTreeWalker(lastRow, NodeFilter.SHOW_TEXT);
+                                while (walker.nextNode()) {
+                                    const textNode = walker.currentNode;
+                                    if (/user cancelled agent execution|cancelled agent execution|agent execution cancelled/i.test(textNode.textContent)) {
+                                        const parent = textNode.parentElement;
+                                        const isInsideMd = Boolean(parent && parent.closest('[data-testid="planner-response-text"], .cursor-edit, .prose, .markdown-body, code, p, pre'));
+                                        if (!isInsideMd) {
+                                            isCancelled = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 

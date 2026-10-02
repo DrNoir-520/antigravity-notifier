@@ -560,8 +560,11 @@ class NotificationService {
                 taskState.status = 'idle';
             }
         } else if (taskState.status === 'running' || (taskState.hasObservedWork && taskState.status !== 'settling')) {
-            const hasPendingQuestion = Boolean(pendingQuestion);
-            const isTaskCancelled = Boolean(taskState.isCancelled);
+            const hasPendingQuestion = Boolean(
+                pendingQuestion ||
+                (lastModelTurn && Array.isArray(lastModelTurn.tools) && lastModelTurn.tools.some(t => t.name === 'ask_question'))
+            );
+            const isTaskCancelled = Boolean(taskState.isCancelled) && !hasPendingQuestion && !hasPendingProceed;
             const modelHasOutput = Boolean(
                 isTaskCancelled ||
                 lastModelTurn && (
@@ -606,12 +609,12 @@ class NotificationService {
             const uId = (lastUserTurn && lastUserTurn.id) ? lastUserTurn.id : ('u_' + lastUserIdx);
             const mId = (lastModelTurn && lastModelTurn.id) ? lastModelTurn.id : ('m_' + lastModelIdx);
 
-            const targetSignature = isTaskCancelled
-                ? (uId + '::' + mId + '::cancelled')
-                : (hasPendingQuestion
-                    ? (uId + '::' + mId + '::question_pending')
-                    : (hasPendingProceed
-                        ? (uId + '::' + mId + '::proceed_pending')
+            const targetSignature = hasPendingQuestion
+                ? (uId + '::' + mId + '::question_pending')
+                : (hasPendingProceed
+                    ? (uId + '::' + mId + '::proceed_pending')
+                    : (isTaskCancelled
+                        ? (uId + '::' + mId + '::cancelled')
                         : (uId + '::' + mId)));
 
             let isAlreadyNotified = false;
@@ -672,11 +675,6 @@ class NotificationService {
                         return;
                     }
 
-                    // Check if interactive question modal is active
-                    const isQuestionPending = isStillActiveInDom
-                        ? Boolean(currentPendingQuestion)
-                        : false;
-
                     // Guard 2: Fresh turns verification
                     let freshTurns = isStillActiveInDom ? (currentTurns || []) : this.getTranscriptTurns(targetConvId);
                     if (!freshTurns || freshTurns.length === 0) {
@@ -699,11 +697,21 @@ class NotificationService {
                         if (freshModel && freshUser) break;
                     }
 
+                    // Check if interactive question modal is active
+                    const isQuestionPending = isStillActiveInDom
+                        ? (Boolean(currentPendingQuestion) || (freshModel && Array.isArray(freshModel.tools) && freshModel.tools.some(t => t.name === 'ask_question')))
+                        : freshTurns.some(t =>
+                            t.role === 'assistant' &&
+                            Array.isArray(t.tools) &&
+                            t.tools.some(tool => tool.name === 'ask_question') &&
+                            t === freshTurns[freshTurns.length - 1]
+                        );
+
                     const isPlanApprovalPending = isStillActiveInDom
                         ? Boolean(currentHasPendingProceed)
                         : freshTurns.some(t => t.role === 'assistant' && Array.isArray(t.artifacts) && t.artifacts.some(a => a.canProceed && !a.proceeded));
 
-                    const isTaskCancelled = Boolean(taskState.isCancelled);
+                    const isTaskCancelled = Boolean(taskState.isCancelled) && !isQuestionPending && !isPlanApprovalPending;
                     const freshModelHasOutput = Boolean(
                         isTaskCancelled ||
                         freshModel && (
@@ -741,12 +749,12 @@ class NotificationService {
                     const freshUId = (freshUser && freshUser.id) ? freshUser.id : ('u_' + freshUIdx);
                     const freshMId = (freshModel && freshModel.id) ? freshModel.id : (freshMIdx >= 0 ? ('m_' + freshMIdx) : 'm_cancelled');
 
-                    const freshSignature = isTaskCancelled
-                        ? (freshUId + '::' + freshMId + '::cancelled')
-                        : (isQuestionPending
-                            ? (freshUId + '::' + freshMId + '::question_pending')
-                            : (isPlanApprovalPending
-                                ? (freshUId + '::' + freshMId + '::proceed_pending')
+                    const freshSignature = isQuestionPending
+                        ? (freshUId + '::' + freshMId + '::question_pending')
+                        : (isPlanApprovalPending
+                            ? (freshUId + '::' + freshMId + '::proceed_pending')
+                            : (isTaskCancelled
+                                ? (freshUId + '::' + freshMId + '::cancelled')
                                 : (freshUId + '::' + freshMId)));
 
                     // Guard 4: Deduplication check
@@ -817,7 +825,7 @@ class NotificationService {
                     const completedTime = new Date();
                     const timeHm = formatNotificationTime(completedTime);
 
-                    const status = isTaskCancelled ? '已中断' : (isQuestionPending ? '待输入' : (isPlanApprovalPending ? '待确认' : '已完成'));
+                    const status = isQuestionPending ? '待输入' : (isPlanApprovalPending ? '待确认' : (isTaskCancelled ? '已中断' : '已完成'));
                     const pushTitle = `${convTitle}（${projectName}）${status} ${timeHm}`;
 
                     console.log(`🔔 [Push] Task event genuinely settled for "${convTitle}" [Project: ${projectName}, Status: ${status}] (convId: ${targetConvId}). Sending notification.`);
