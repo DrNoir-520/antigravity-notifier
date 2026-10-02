@@ -543,7 +543,24 @@ class NotificationService {
             if (lastModelTurn && lastUserTurn) break;
         }
 
-        if (isWorking) {
+        const hasPendingQuestion = Boolean(
+            pendingQuestion ||
+            (lastModelTurn && Array.isArray(lastModelTurn.tools) && lastModelTurn.tools.some(t => t.name === 'ask_question'))
+        );
+        const isSuspendedForUser = Boolean(hasPendingQuestion || hasPendingProceed);
+        const effIsWorking = isSuspendedForUser ? false : isWorking;
+
+        if (taskState.status === 'pending_start') {
+            if (isSuspendedForUser) {
+                taskState.hasObservedWork = true;
+                taskState.status = 'running';
+                console.log(`⚡ [Push-Debug] User action suspended (question/proceed) detected for conv "${convId}" during pending_start.`);
+            } else if (Date.now() - (taskState.submittedAt || 0) > 90000) {
+                taskState.status = 'idle';
+            }
+        }
+
+        if (effIsWorking) {
             if (taskState.status !== 'running') {
                 console.log(`⚡ [Push-Debug] Work detected for conv "${convId}". Status transitioning to running.`);
             }
@@ -554,10 +571,6 @@ class NotificationService {
                 console.log(`⚡ [Push-Debug] Resetting settling timer for "${convId}" as work has resumed.`);
                 clearTimeout(taskState.settlingTimer);
                 taskState.settlingTimer = null;
-            }
-        } else if (taskState.status === 'pending_start') {
-            if (Date.now() - (taskState.submittedAt || 0) > 90000) {
-                taskState.status = 'idle';
             }
         } else if (taskState.status === 'running' || (taskState.hasObservedWork && taskState.status !== 'settling')) {
             const hasPendingQuestion = Boolean(
@@ -595,7 +608,7 @@ class NotificationService {
                     !lastModelTurn.isThinking &&
                     modelHasOutput &&
                     isNewRound &&
-                    (!Array.isArray(lastModelTurn.tools) || !lastModelTurn.tools.some(t => t.status === 'running'))
+                    (!Array.isArray(lastModelTurn.tools) || !lastModelTurn.tools.some(t => t.status === 'running' && t.name !== 'ask_question'))
                 );
 
             if (!hasValidRound) {
@@ -648,34 +661,10 @@ class NotificationService {
                     const currentPendingQuestion = curState.currentPendingQuestion;
                     const currentHasPendingProceed = curState.currentHasPendingProceed;
 
-                    // Guard 1: Verify this specific conversation has not resumed work
                     const isStillActiveInDom = (((currentConv && currentConv.id) || (currentTree && currentTree.activeConvId)) === targetConvId);
                     const isStillRunningInSidebar = this.isConversationRunningInSidebar(currentTree, targetConvId);
-                    let isStillWorking = false;
-                    if (isStillActiveInDom) {
-                        isStillWorking = Boolean(
-                            currentIsGenerating ||
-                            currentIsThinking ||
-                            (Array.isArray(currentRunningTasks) && currentRunningTasks.length > 0) ||
-                            isStillRunningInSidebar ||
-                            (currentTurns || []).some(t =>
-                                t.role === 'assistant' &&
-                                Array.isArray(t.tools) &&
-                                t.tools.some(tool => tool.status === 'running')
-                            )
-                        );
-                    } else {
-                        isStillWorking = isStillRunningInSidebar;
-                    }
 
-                    if (isStillWorking) {
-                        console.log(`⚠️ [Push-Debug] Guard 1: conversation "${targetConvId}" resumed work, returning to running.`);
-                        taskState.status = 'running';
-                        if (isStillActiveInDom && this.onTaskStateChange) this.onTaskStateChange(taskState);
-                        return;
-                    }
-
-                    // Guard 2: Fresh turns verification
+                    // Fetch fresh turns to inspect current state
                     let freshTurns = isStillActiveInDom ? (currentTurns || []) : this.getTranscriptTurns(targetConvId);
                     if (!freshTurns || freshTurns.length === 0) {
                         freshTurns = (effTurns && effTurns.length > 0) ? effTurns : this.getTranscriptTurns(targetConvId);
@@ -697,7 +686,7 @@ class NotificationService {
                         if (freshModel && freshUser) break;
                     }
 
-                    // Check if interactive question modal is active
+                    // Check if interactive question modal or plan approval is active
                     const isQuestionPending = isStillActiveInDom
                         ? (Boolean(currentPendingQuestion) || (freshModel && Array.isArray(freshModel.tools) && freshModel.tools.some(t => t.name === 'ask_question')))
                         : freshTurns.some(t =>
@@ -711,6 +700,36 @@ class NotificationService {
                         ? Boolean(currentHasPendingProceed)
                         : freshTurns.some(t => t.role === 'assistant' && Array.isArray(t.artifacts) && t.artifacts.some(a => a.canProceed && !a.proceeded));
 
+                    const isSuspendedForUserAction = Boolean(isQuestionPending || isPlanApprovalPending);
+
+                    // Guard 1: Verify this specific conversation has not resumed work
+                    // Note: When waiting for user action (pending question or plan approval), Antigravity sidebar
+                    // may still mark the conversation as running, but execution is paused. We must not treat that as resumed work.
+                    let isStillWorking = false;
+                    if (isStillActiveInDom) {
+                        isStillWorking = Boolean(
+                            (!isSuspendedForUserAction && currentIsGenerating) ||
+                            (!isSuspendedForUserAction && currentIsThinking) ||
+                            (Array.isArray(currentRunningTasks) && currentRunningTasks.length > 0) ||
+                            (!isSuspendedForUserAction && isStillRunningInSidebar) ||
+                            (!isSuspendedForUserAction && (currentTurns || []).some(t =>
+                                t.role === 'assistant' &&
+                                Array.isArray(t.tools) &&
+                                t.tools.some(tool => tool.status === 'running' && tool.name !== 'ask_question')
+                            ))
+                        );
+                    } else {
+                        isStillWorking = !isSuspendedForUserAction && isStillRunningInSidebar;
+                    }
+
+                    if (isStillWorking) {
+                        console.log(`⚠️ [Push-Debug] Guard 1: conversation "${targetConvId}" resumed work, returning to running.`);
+                        taskState.status = 'running';
+                        if (isStillActiveInDom && this.onTaskStateChange) this.onTaskStateChange(taskState);
+                        return;
+                    }
+
+                    // Guard 2: Fresh turns validation
                     const isTaskCancelled = Boolean(taskState.isCancelled) && !isQuestionPending && !isPlanApprovalPending;
                     const freshModelHasOutput = Boolean(
                         isTaskCancelled ||
@@ -739,7 +758,7 @@ class NotificationService {
                         }
                     }
 
-                    if (!isTaskCancelled && Array.isArray(freshModel.tools) && freshModel.tools.some(t => t.status === 'running')) {
+                    if (!isTaskCancelled && Array.isArray(freshModel.tools) && freshModel.tools.some(t => t.status === 'running' && t.name !== 'ask_question')) {
                         console.log(`⚠️ [Push-Debug] Guard 3b: assistant tool still running for "${targetConvId}".`);
                         taskState.status = 'running';
                         if (isStillActiveInDom && this.onTaskStateChange) this.onTaskStateChange(taskState);
