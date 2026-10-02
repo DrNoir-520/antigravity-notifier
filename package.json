@@ -1,30 +1,50 @@
 {
   "name": "antigravity-notifier",
   "version": "1.0.0",
-  "description": "Lightweight, stealth background push notification daemon for Antigravity AI IDE",
+  "description": "Ultra-lightweight, zero-dependency stealth mobile push notification daemon for Google Antigravity & Gemini CLI (Qmsg / Bark / ntfy / WeCom / ServerChan). 反重力 AI 手机端消息推送服务与后台静默守护进程。",
   "main": "src/index.js",
   "bin": {
     "antigravity-notifier": "bin/notifier.js"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DrNoir-520/antigravity-notifier.git"
+  },
+  "homepage": "https://github.com/DrNoir-520/antigravity-notifier#readme",
+  "bugs": {
+    "url": "https://github.com/DrNoir-520/antigravity-notifier/issues"
+  },
   "scripts": {
     "start": "node bin/notifier.js start",
     "daemon": "node bin/notifier.js daemon",
-    "test": "node test/test_all.js",
+    "test": "node test/test_all.js && node test/test_ascii_comments.js",
     "install-service": "powershell -ExecutionPolicy Bypass -File scripts/install-service.ps1",
     "uninstall-service": "powershell -ExecutionPolicy Bypass -File scripts/uninstall-service.ps1"
   },
   "keywords": [
     "antigravity",
+    "google-antigravity",
+    "gemini",
+    "gemini-cli",
+    "deepmind-antigravity",
     "push-notification",
+    "mobile-notification",
+    "mobile-alerts",
+    "task-completed",
     "qmsg",
     "bark",
     "ntfy",
     "serverchan",
     "wecom",
+    "wechat-work",
+    "webhook",
     "daemon",
-    "stealth"
+    "stealth-mode",
+    "windows-task-scheduler",
+    "ai-coding-assistant",
+    "developer-tools"
   ],
-  "author": "peng9627",
+  "author": "DrNoir-520",
   "license": "MIT",
   "engines": {
     "node": ">=18.0.0"

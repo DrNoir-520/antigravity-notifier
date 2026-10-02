@@ -1,24 +1,65 @@
-# Antigravity Push Notifier (反重力消息推送服务)
+# Antigravity Push Notifier (反重力手机消息推送守护进程)
 
-> 🚀 **超轻量、零依赖、防更新丢失、完全隐蔽运行的 Antigravity 智能手机端推送守护进程。**
+<p align="center">
+  <img src="https://img.shields.io/badge/Antigravity-AI%20IDE-blue?style=for-the-badge&logo=google" alt="Antigravity">
+  <img src="https://img.shields.io/badge/Platform-Windows%2010%2F11-blue?style=for-the-badge&logo=windows" alt="Windows">
+  <img src="https://img.shields.io/badge/Node.js-%3E%3D18.0.0-green?style=for-the-badge&logo=node.js" alt="Node.js">
+  <img src="https://img.shields.io/badge/Dependencies-0%20(Zero)-brightgreen?style=for-the-badge" alt="Zero Dependencies">
+  <img src="https://img.shields.io/badge/License-MIT-orange?style=for-the-badge" alt="MIT License">
+  <img src="https://img.shields.io/badge/Status-Stealth%20%26%20Update--Immune-purple?style=for-the-badge" alt="Stealth">
+</p>
+
+> 🚀 **Google DeepMind Antigravity / Gemini CLI 专用的超轻量、零依赖、防更新丢失、完全隐蔽运行的手机端即时消息推送守护进程。**
+> 
+> *An ultra-lightweight, zero-dependency, stealth background push notification daemon for Google Antigravity & Gemini CLI. Delivers instant alerts to your phone via Qmsg, Bark (iOS), ntfy, WeCom, ServerChan, and Webhooks when long-running AI coding tasks finish or require input.*
 
 ---
 
-## 🌟 特性概览
+## 🎯 解决什么痛点？(Why this exists)
 
-- 🪶 **原生零依赖 (Zero Runtime Dependencies)**: 基于 Node.js 原生 `fetch`、`WebSocket` 与 `http` 构建，无需执行 `npm install` 即可开箱即用。
+在使用 **Google Antigravity / Gemini CLI** 进行大型项目重构、TDD 测试驱动开发或耗时很长的复杂任务时，开发者往往需要离开电脑（如休息、吃饭、外出）。但在传统模式下：
+1. **无法得知何时完成**：必须频频跑回电脑前查看控制台或编辑器；
+2. **卡在交互流程中被动等待**：当 AI 触发问答（`ask_question`）或等待计划确认（`Proceed`）时，若开发者不在电脑旁，整个任务进度就会一直停滞；
+3. **传统脚本易随更新报废**：魔改在软件安装目录下的脚本，只要反重力客户端一升级就会被全量覆盖失效；
+4. **弹黑框弹窗影响体验**：常规开机自启常伴随终端黑框闪烁，影响日常办公。
+
+**`antigravity-notifier` 为此而生**：
+以 **0 外部依赖、<20MB 内存占用、0% 空闲 CPU、Windows 系统级隐蔽驻留、跨版本升级免疫** 的方式，实时监听反重力任务并在手机上优雅弹出精简提醒！
+
+---
+
+## 🔍 搜索关键词与常见提问索引 (Search & AI Prompt Index)
+
+> 为方便开发者及各类 AI 搜索代理（Perplexity, ChatGPT, Claude, Gemini, Copilot）精准索引与检索，以下列出本仓库覆盖的所有核心场景与自然语言查询词：
+
+| 常见搜索提问 (User Intent / Query) | 对应功能与场景 | 关键词 (Keywords) |
+| :--- | :--- | :--- |
+| **"如何在手机上接收 Antigravity 任务完成通知？"** | 任务执行收尾后毫秒级推送 | `Antigravity 手机通知`, `反重力 消息推送`, `任务完成提醒` |
+| **"How to get mobile notifications when Google Antigravity finishes a task?"** | Task lifecycle settling detection | `antigravity push notification`, `mobile alerts`, `task completion` |
+| **"Antigravity 怎么配置微信 / 钉钉 / Bark / Qmsg 提醒？"** | 支持多通道标准化协议 (`bark://`, `qmsg://`, `wecom://`) | `Antigravity Bark`, `Antigravity Qmsg`, `Antigravity 微信推送` |
+| **"反重力需要用户确认 (Proceed) 或回答问题时怎么在手机提醒？"** | 自动识别 `待输入` 与 `待确认` 状态 | `Antigravity 待确认提醒`, `ask_question 手机通知`, `plan approval` |
+| **"如何让反重力推送服务开机自启且完全静默无黑框？"** | VBScript WindowStyle 0 + Windows 计划任务 | `后台静默运行`, `隐藏控制台窗口`, `windows-task-scheduler` |
+| **"反重力更新后插件失效怎么办？如何防更新抹除？"** | 独立于应用安装路径，配置存于 `~/.gemini/config/` | `防更新覆盖`, `update-immune`, `持久化配置` |
+| **"无需一直开着 Web 界面的反重力后台监控脚本"** | 原生 CDP WebSocket 端口动态自适应发现 | `headless-monitor`, `cdp-observer`, `zero-dependencies` |
+
+---
+
+## 🌟 核心特性 (Features)
+
+- 🪶 **原生零依赖 (Zero Runtime Dependencies)**:
+  - 基于 Node.js 原生 `fetch`、`WebSocket` 与 `http` 构建，无需执行 `npm install` 即可开箱即用。
 - 🛡️ **更新免疫 (Update Immunity)**:
   - 服务与配置独立于 Antigravity 安装目录，持久化保存于用户主目录 (`~/.gemini/config/notifier.json`)。
   - Antigravity 客户端日常更新升级**绝不丢失配置、绝不中断开机自启**。
 - 👻 **绝对隐蔽执行 (Stealth Execution)**:
-  - 基于 Windows 任务计划程序 (`schtasks`) 与 VBScript 纯静默加载器 (`wscript.exe //B run-hidden.vbs` WindowStyle = 0)。
+  - 基于 Windows 任务计划程序 (`schtasks` / `Register-ScheduledTask`) 与 VBScript 纯静默加载器 (`wscript.exe //B run-hidden.vbs` WindowStyle = 0)。
   - 登录系统或启动反重力时，**无任何黑框命令行闪烁、无任务栏图标、无弹窗干扰**。
 - 🔋 **超低能耗与资源占用**:
   - 反重力未开启或空闲时处于深度休眠与低频轮询状态，内存占用小于 20MB，CPU 占用 0%。
   - 反重力启动时毫秒级自动挂载监听，关闭后自动回归休眠。
 - 📱 **精准格式化三状态通知**:
   - 格式严格遵循：`<会话名称>（<项目名称>）<状态> <HH:mm>`
-  - 自动识别当前会话归属项目，智能判断三类核心状态：
+  - 智能识别当前会话归属项目，准确派发三类核心状态：
     1. **已完成**：AI 任务完整执行收尾并就绪。
     2. **待输入**：AI 触发交互式提问（`ask_question`），等待用户手机或网页端回答。
     3. **待确认**：AI 提出计划方案（`Proceed`），等待用户确认（开启自动审批时智能静默不打扰）。
@@ -32,7 +73,7 @@
 
 ---
 
-## 📁 目录架构
+## 📁 目录架构 (Architecture)
 
 ```text
 antigravity-notifier/
@@ -50,14 +91,14 @@ antigravity-notifier/
 │   └── index.js             # 模块 SDK 入口导出
 ├── test/
 │   ├── test_all.js          # 核心单元测试集 (格式化/状态机/通道归一化/端口探测)
-│   └── test_ascii_comments.js # 代码注释规范合规测试
+│   └── test_ascii_comments.js # 严格 ASCII 规范合规测试
 ├── package.json             # 项目元信息与 CLI 配置
 └── LICENSE                  # MIT 开源许可证
 ```
 
 ---
 
-## ⚡ 快速上手
+## ⚡ 快速上手 (Quick Start)
 
 ### 1. 配置推送地址 / Key
 
@@ -65,10 +106,10 @@ antigravity-notifier/
 
 ```bash
 # 以 Qmsg 酱为例：
-node bin/notifier.js set-push "qmsg://c1b887b5f9ed73ea0fa1704ed29064bf496bdf33"
+node bin/notifier.js set-push "qmsg://YOUR_QMSG_KEY"
 
 # 或以 iOS Bark 为例：
-node bin/notifier.js set-push "https://api.day.app/YOUR_KEY/"
+node bin/notifier.js set-push "https://api.day.app/YOUR_DEVICE_KEY/"
 
 # 或以 ntfy 为例：
 node bin/notifier.js set-push "ntfy://my-antigravity-alerts"
@@ -97,7 +138,7 @@ node bin/notifier.js install
 
 ---
 
-## 🛠️ 常用 CLI 指令
+## 🛠️ 常用 CLI 指令汇总 (CLI Reference)
 
 | 命令 | 说明 |
 | :--- | :--- |
@@ -122,6 +163,25 @@ node bin/notifier.js install
 
 ---
 
-## 📄 许可证
+## 💡 常见问题 (FAQ)
 
-本项目基于 [MIT License](LICENSE) 开源。
+<details>
+<summary><b>Q1: 守护进程会影响电脑性能或玩游戏吗？</b></summary>
+完全不会。在反重力未开启或空闲时，进程每隔数秒仅做一次轻量本机端口探测，CPU 占用率恒定为 0%，物理内存占用维持在 15~20MB，比一个普通的记事本进程还要轻量。
+</details>
+
+<details>
+<summary><b>Q2: 如果我开了自动审批方案 (Turbo / Always Proceed)，还会频繁弹通知吗？</b></summary>
+不会。服务内置了自动审批感知器，一旦检测到你启用了自动同意方案，便会自动静默抑制“待确认”提醒，避免无效的通知打扰，只在真正任务完成或等待用户输入时提醒。
+</details>
+
+<details>
+<summary><b>Q3: 我可以同时在公司电脑和家用电脑上使用吗？</b></summary>
+可以。每一台安装了 Antigravity 的电脑都可以独立部署本守护进程，支持使用同一个或不同的推送 Key。
+</details>
+
+---
+
+## 📄 开源许可证 (License)
+
+本项目遵循 [MIT License](LICENSE) 开源。欢迎 Star、Fork 与提交 Issue！
