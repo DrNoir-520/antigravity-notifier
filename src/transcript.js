@@ -122,10 +122,10 @@ function fetchActiveConversations(limit = 15) {
 /**
  * Read conversation turns from transcript file with fast tail buffering.
  * @param {string} convId
- * @param {number} [maxTailBytes=131072] Buffer tail up to 128KB for efficiency
+ * @param {number} [maxTailBytes=524288] Buffer tail up to 512KB for efficiency
  * @returns {Array<Object>}
  */
-function getTranscriptTurns(convId, maxTailBytes = 131072) {
+function getTranscriptTurns(convId, maxTailBytes = 524288) {
     const filePath = resolveTranscriptPath(convId);
     if (!filePath) return [];
 
@@ -147,74 +147,92 @@ function getTranscriptTurns(convId, maxTailBytes = 131072) {
             }
         }
 
-        const lines = content.trim().split('\n');
-        const turns = [];
-        let currentAssistantTurn = null;
+        const parseLines = (rawText) => {
+            const lines = rawText.trim().split('\n');
+            const turns = [];
+            let currentAssistantTurn = null;
 
-        for (const line of lines) {
-            if (!line.trim()) continue;
-            let step = null;
-            try {
-                step = JSON.parse(line.trim());
-            } catch (_) {
-                continue;
-            }
-
-            if (step.type === 'USER_INPUT') {
-                if (currentAssistantTurn) {
-                    turns.push(currentAssistantTurn);
-                    currentAssistantTurn = null;
+            for (const line of lines) {
+                if (!line.trim()) continue;
+                let step = null;
+                try {
+                    step = JSON.parse(line.trim());
+                } catch (_) {
+                    continue;
                 }
-                turns.push({
-                    role: 'user',
-                    id: `turn-u-${convId}-${step.step_index || turns.length}`,
-                    text: typeof step.content === 'string' ? step.content : '',
-                    stepIndex: step.step_index
-                });
-            } else if (step.type === 'PLANNER_RESPONSE') {
-                if (!currentAssistantTurn) {
-                    currentAssistantTurn = {
-                        role: 'assistant',
-                        id: `turn-a-${convId}-${step.step_index || turns.length}`,
-                        text: '',
-                        tools: [],
-                        artifacts: [],
-                        isThinking: false,
+
+                if (step.type === 'USER_INPUT') {
+                    if (currentAssistantTurn) {
+                        turns.push(currentAssistantTurn);
+                        currentAssistantTurn = null;
+                    }
+                    turns.push({
+                        role: 'user',
+                        id: `turn-u-${convId}-${step.step_index || turns.length}`,
+                        text: typeof step.content === 'string' ? step.content : '',
                         stepIndex: step.step_index
-                    };
-                }
-                if (typeof step.content === 'string' && step.content) {
-                    currentAssistantTurn.text = step.content;
-                }
-                if (step.thinking && !step.content) {
-                    currentAssistantTurn.isThinking = (step.status !== 'DONE' && step.status !== 'ERROR');
-                }
-                if (Array.isArray(step.tool_calls)) {
-                    for (const tc of step.tool_calls) {
-                        currentAssistantTurn.tools.push({
-                            name: tc.name || tc.tool_name || 'tool',
-                            status: step.status === 'DONE' ? 'completed' : 'running',
-                            args: tc.args
-                        });
+                    });
+                } else if (step.type === 'PLANNER_RESPONSE') {
+                    if (!currentAssistantTurn) {
+                        currentAssistantTurn = {
+                            role: 'assistant',
+                            id: `turn-a-${convId}-${step.step_index || turns.length}`,
+                            text: '',
+                            tools: [],
+                            artifacts: [],
+                            isThinking: false,
+                            stepIndex: step.step_index
+                        };
                     }
-                }
-                if (Array.isArray(step.media)) {
-                    for (const m of step.media) {
-                        currentAssistantTurn.artifacts.push({
-                            uri: m.uri,
-                            canProceed: false,
-                            proceeded: true
-                        });
+                    if (typeof step.content === 'string' && step.content) {
+                        currentAssistantTurn.text = step.content;
+                    }
+                    if (step.thinking && !step.content) {
+                        currentAssistantTurn.isThinking = (step.status !== 'DONE' && step.status !== 'ERROR');
+                    }
+                    if (Array.isArray(step.tool_calls)) {
+                        for (const tc of step.tool_calls) {
+                            currentAssistantTurn.tools.push({
+                                name: tc.name || tc.tool_name || 'tool',
+                                status: step.status === 'DONE' ? 'completed' : 'running',
+                                args: tc.args
+                            });
+                        }
+                    }
+                    if (Array.isArray(step.media)) {
+                        for (const m of step.media) {
+                            currentAssistantTurn.artifacts.push({
+                                uri: m.uri,
+                                canProceed: false,
+                                proceeded: true
+                            });
+                        }
                     }
                 }
             }
+
+            if (currentAssistantTurn) {
+                turns.push(currentAssistantTurn);
+            }
+            return turns;
+        };
+
+        let parsedTurns = parseLines(content);
+
+        // Fallback recovery: If buffer tail does not contain any user turn and file is larger,
+        // expand reading window to avoid dropping current user turn for long command outputs.
+        const hasUserTurn = parsedTurns.some(t => t.role === 'user');
+        if (!hasUserTurn && stat.size > maxTailBytes && stat.size < 10485760) {
+            try {
+                const fullContent = fs.readFileSync(filePath, 'utf8');
+                const fullTurns = parseLines(fullContent);
+                if (fullTurns.length > 0) {
+                    parsedTurns = fullTurns;
+                }
+            } catch (_) {}
         }
 
-        if (currentAssistantTurn) {
-            turns.push(currentAssistantTurn);
-        }
-
-        return turns;
+        return parsedTurns;
     } catch (_) {
         return [];
     }
@@ -269,11 +287,80 @@ function inspectTurnStatusFlags(convId, cachedTurns = null) {
     return { pendingQuestion, hasPendingProceed, isCancelled };
 }
 
+/**
+ * Determine authoritative execution state of a conversation by reconciling
+ * stale SQLite database metadata against real-time JSONL transcript logs.
+ * Resolves edge-cases where background tasks genuinely complete but SQLite remains in RUNNING
+ * until user actively clicks into the conversation tab.
+ * @param {Object} convMetadata Conversation summary record from DB
+ * @param {Array<Object>} [cachedTurns] Optional pre-loaded transcript turns
+ * @returns {boolean} True if actively executing, false if settled/idle
+ */
+function isConversationActivelyWorking(convMetadata, cachedTurns = null) {
+    const rawWorking = Boolean(convMetadata && convMetadata.isWorking);
+    const convId = convMetadata && convMetadata.convId;
+    const turns = cachedTurns || (convId ? getTranscriptTurns(convId) : []);
+
+    if (!turns || turns.length === 0) {
+        return rawWorking;
+    }
+
+    let lastUserTurn = null;
+    let lastModelTurn = null;
+    let lastUserIdx = -1;
+    let lastModelIdx = -1;
+
+    for (let i = turns.length - 1; i >= 0; i--) {
+        if (!lastModelTurn && turns[i].role === 'assistant') {
+            lastModelTurn = turns[i];
+            lastModelIdx = i;
+        }
+        if (!lastUserTurn && turns[i].role === 'user') {
+            lastUserTurn = turns[i];
+            lastUserIdx = i;
+        }
+        if (lastModelTurn && lastUserTurn) break;
+    }
+
+    // 1. User turn exists but assistant turn has not responded yet: Actively working
+    if (lastUserTurn && (!lastModelTurn || lastUserIdx > lastModelIdx)) {
+        return true;
+    }
+
+    // 2. Assistant turn exists
+    if (lastModelTurn) {
+        // Assistant is still actively thinking
+        if (lastModelTurn.isThinking) {
+            return true;
+        }
+
+        // Assistant has incomplete/running background tools (except interactive ask_question)
+        if (Array.isArray(lastModelTurn.tools) && lastModelTurn.tools.some(t => t.status === 'running' && t.name !== 'ask_question')) {
+            return true;
+        }
+
+        // Empty assistant turn with no tools, artifacts, or text: Still initializing
+        const hasText = typeof lastModelTurn.text === 'string' && lastModelTurn.text.trim().length > 0;
+        const hasTools = Array.isArray(lastModelTurn.tools) && lastModelTurn.tools.length > 0;
+        const hasArtifacts = Array.isArray(lastModelTurn.artifacts) && lastModelTurn.artifacts.length > 0;
+        if (!hasText && !hasTools && !hasArtifacts) {
+            return true;
+        }
+
+        // All tools completed, output present, not thinking: Task has genuinely finished its run!
+        // Override stale database status (e.g. CASCADE_RUN_STATUS_RUNNING delayed write)
+        return false;
+    }
+
+    return rawWorking;
+}
+
 module.exports = {
     resolveDatabasePath,
     resolveTranscriptPath,
     extractProjectName,
     fetchActiveConversations,
     getTranscriptTurns,
-    inspectTurnStatusFlags
+    inspectTurnStatusFlags,
+    isConversationActivelyWorking
 };

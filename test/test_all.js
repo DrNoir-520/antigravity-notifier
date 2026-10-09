@@ -253,6 +253,60 @@ async function runAllTests() {
         console.log('  ✅ [PASS] Storage and transcript inspection verified');
     }
 
+    // ---------------------------------------------------------------------------
+    // Test Suite 8: Stale Database Status Correction & Transcript Fallback
+    // ---------------------------------------------------------------------------
+    console.log('\nTest Suite 8: Stale Database Status Correction & Transcript Fallback');
+    {
+        const { isConversationActivelyWorking } = require('../src/transcript');
+
+        // Case 1: DB says RUNNING, but transcript has completed assistant response with no running tools
+        const completedTurns = [
+            { role: 'user', id: 'u1', text: 'Please analyze repository' },
+            { role: 'assistant', id: 'm1', text: 'Analysis completed successfully.', tools: [{ name: 'run_command', status: 'completed' }] }
+        ];
+        const staleDbConv = {
+            convId: 'conv-stale',
+            status: 'CASCADE_RUN_STATUS_RUNNING',
+            notFullyIdle: true,
+            isWorking: true
+        };
+
+        const activelyWorking = isConversationActivelyWorking(staleDbConv, completedTurns);
+        assert.strictEqual(activelyWorking, false, 'Should correct stale RUNNING DB status to false when transcript is complete');
+
+        // Case 2: DB says RUNNING and assistant is actively generating or thinking
+        const thinkingTurns = [
+            { role: 'user', id: 'u1', text: 'Please analyze repository' },
+            { role: 'assistant', id: 'm1', text: '', isThinking: true, tools: [] }
+        ];
+        assert.strictEqual(isConversationActivelyWorking(staleDbConv, thinkingTurns), true,
+            'Should keep working as true when assistant is thinking');
+
+        // Case 3: DB says RUNNING and tool is still in running status
+        const runningToolTurns = [
+            { role: 'user', id: 'u1', text: 'Please analyze repository' },
+            { role: 'assistant', id: 'm1', text: '', isThinking: false, tools: [{ name: 'run_command', status: 'running' }] }
+        ];
+        assert.strictEqual(isConversationActivelyWorking(staleDbConv, runningToolTurns), true,
+            'Should keep working as true when tool is still running');
+
+        // Case 4: DB says IDLE but user just submitted a prompt (turn has only user)
+        const userPromptOnlyTurns = [
+            { role: 'user', id: 'u2', text: 'New prompt just sent' }
+        ];
+        const idleDbConv = {
+            convId: 'conv-fresh',
+            status: 'CASCADE_RUN_STATUS_IDLE',
+            notFullyIdle: false,
+            isWorking: false
+        };
+        assert.strictEqual(isConversationActivelyWorking(idleDbConv, userPromptOnlyTurns), true,
+            'Should detect new prompt as active working even if DB is still marked IDLE');
+
+        console.log('  ✅ [PASS] Stale database status correction and prompt detection verified');
+    }
+
     console.log('\n🎉 ALL ANTIGRAVITY NOTIFIER UNIT TESTS PASSED SUCCESSFULLY!\n');
 }
 

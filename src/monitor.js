@@ -10,7 +10,8 @@ const os = require('os');
 const {
     fetchActiveConversations,
     getTranscriptTurns,
-    inspectTurnStatusFlags
+    inspectTurnStatusFlags,
+    isConversationActivelyWorking
 } = require('./transcript');
 
 const FALLBACK_PORTS = [9000, 5743, 9222, 9229, 9333, 9223];
@@ -348,7 +349,8 @@ class AntigravityMonitor {
         for (const c of convs) {
             if (!c || !c.convId) continue;
             const taskState = this.service.getConvTaskState(c.convId);
-            const isWorking = Boolean(c.isWorking);
+            const turns = getTranscriptTurns(c.convId);
+            const isWorking = isConversationActivelyWorking(c, turns);
 
             if (isWorking) {
                 if (taskState.status !== 'running') {
@@ -357,7 +359,6 @@ class AntigravityMonitor {
             }
 
             if (isWorking || taskState.status === 'running' || taskState.status === 'settling' || taskState.hasObservedWork) {
-                const turns = getTranscriptTurns(c.convId);
                 const flags = inspectTurnStatusFlags(c.convId, turns);
 
                 this.service.evaluateConversationTaskLifecycle({
