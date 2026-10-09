@@ -214,6 +214,45 @@ async function runAllTests() {
         console.log('  ✅ [PASS] Question notification delay configuration verified');
     }
 
+    // ---------------------------------------------------------------------------
+    // Test Suite 7: Native Storage & Transcript Turn Parsing
+    // ---------------------------------------------------------------------------
+    console.log('\nTest Suite 7: Native Storage & Transcript Turn Parsing');
+    {
+        const {
+            extractProjectName,
+            inspectTurnStatusFlags
+        } = require('../src/transcript');
+
+        assert.strictEqual(
+            extractProjectName('["file:///d%3A/1AWDWJ/Anti/AGY"]'),
+            'AGY',
+            'extractProjectName should parse decoded project basename'
+        );
+
+        assert.strictEqual(
+            extractProjectName(''),
+            '独立对话',
+            'extractProjectName should fallback to standalone conversation'
+        );
+
+        const mockTurnsWithQuestion = [
+            { role: 'user', id: 'u1', text: 'help' },
+            { role: 'assistant', id: 'm1', text: '', tools: [{ name: 'ask_question' }] }
+        ];
+        const flagsQ = inspectTurnStatusFlags('dummy', mockTurnsWithQuestion);
+        assert.strictEqual(flagsQ.pendingQuestion, true, 'Should detect pending question tool call');
+
+        const mockTurnsNormal = [
+            { role: 'user', id: 'u1', text: 'help' },
+            { role: 'assistant', id: 'm1', text: 'done', tools: [{ name: 'run_command' }] }
+        ];
+        const flagsNorm = inspectTurnStatusFlags('dummy', mockTurnsNormal);
+        assert.strictEqual(flagsNorm.pendingQuestion, false, 'Should not detect pending question on normal tool');
+
+        console.log('  ✅ [PASS] Storage and transcript inspection verified');
+    }
+
     console.log('\n🎉 ALL ANTIGRAVITY NOTIFIER UNIT TESTS PASSED SUCCESSFULLY!\n');
 }
 
@@ -221,3 +260,4 @@ runAllTests().catch((err) => {
     console.error('❌ Test suite failed:', err);
     process.exit(1);
 });
+

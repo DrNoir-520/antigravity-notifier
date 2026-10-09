@@ -6,6 +6,14 @@ const { NotificationGateway, createNotificationGateway, normalizePushUrl, delive
 const { NotificationService } = require('./service');
 const { ConfigManager, configManager } = require('./config');
 const { AntigravityMonitor } = require('./monitor');
+const {
+    resolveDatabasePath,
+    resolveTranscriptPath,
+    extractProjectName,
+    fetchActiveConversations,
+    getTranscriptTurns,
+    inspectTurnStatusFlags
+} = require('./transcript');
 
 module.exports = {
     NotificationGateway,
@@ -15,5 +23,11 @@ module.exports = {
     NotificationService,
     ConfigManager,
     configManager,
-    AntigravityMonitor
+    AntigravityMonitor,
+    resolveDatabasePath,
+    resolveTranscriptPath,
+    extractProjectName,
+    fetchActiveConversations,
+    getTranscriptTurns,
+    inspectTurnStatusFlags
 };

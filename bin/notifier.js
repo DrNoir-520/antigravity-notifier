@@ -9,6 +9,7 @@ const { configManager } = require('../src/config');
 const { NotificationGateway, deliverPushNotification } = require('../src/gateway');
 const { NotificationService } = require('../src/service');
 const { AntigravityMonitor } = require('../src/monitor');
+const { getTranscriptTurns } = require('../src/transcript');
 
 const args = process.argv.slice(2);
 const command = (args[0] || 'start').toLowerCase();
@@ -30,6 +31,7 @@ async function runDaemon(isSilent = false) {
     const service = new NotificationService({
         config,
         gateway,
+        getTranscriptTurns: (convId) => getTranscriptTurns(convId),
         onConfigChange: (newCfg) => configManager.save(newCfg)
     });
 
@@ -39,7 +41,11 @@ async function runDaemon(isSilent = false) {
         onStatusChange: (status) => {
             if (isSilent) return;
             if (status.connected) {
-                console.log(`🔗 [Connected] Antigravity attached on port ${status.port}`);
+                if (status.mode === 'disk') {
+                    console.log('🔗 [Connected] Antigravity attached via native storage monitor.');
+                } else {
+                    console.log(`🔗 [Connected] Antigravity attached on port ${status.port}`);
+                }
             } else {
                 console.log('⏳ [Waiting] Antigravity not running. Monitoring in background (0% CPU)...');
             }
