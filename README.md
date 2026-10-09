@@ -54,6 +54,46 @@
 
 ---
 
+## 📥 安装指南 (Installation)
+
+### 1. 环境准备 (Prerequisites)
+- **操作系统**：Windows 10 / 11（支持任务计划开机纯静默自启）
+- **运行环境**：[Node.js](https://nodejs.org/) (>= 18.0.0，推荐 LTS 版本)
+
+> 在终端中执行 `node -v`，若能正常输出版本号（如 `v18.x.x` 或 `v20.x.x`、`v22.x.x`、`v24.x.x`），即说明环境就绪。
+
+### 2. 获取代码 (Download)
+
+**方式 A（推荐）：使用 Git 克隆**
+```bash
+git clone https://github.com/DrNoir-520/antigravity-notifier.git
+cd antigravity-notifier
+```
+
+**方式 B：直接下载 ZIP 压缩包**
+1. 点击本 GitHub 仓库页面右上角绿色 **Code** 按钮，选择 **Download ZIP**。
+2. 解压到本地任意目录（例如 `D:\antigravity-notifier`）。
+3. 在该文件夹内右键选择“在终端中打开”（或打开 PowerShell / CMD 并 `cd` 到该目录）。
+
+> 💡 **免安装依赖**：本项目基于 Node.js 原生 API 开发，**零外部第三方依赖 (Zero Dependencies)**！克隆或解压后**无需执行任何 `npm install`**，即可直接秒速运行。
+
+### 3. （可选）注册为全局系统指令
+
+如果你希望在任何路径的终端下，都能直接使用 `antigravity-notifier <command>` 命令（而无需输入 `node bin/notifier.js`），可以在项目根目录下执行一次全局软链接：
+
+```bash
+npm link
+```
+
+注册后，后续所有命令都可以直接以 `antigravity-notifier` 开头，例如：
+```bash
+antigravity-notifier set-push "qmsg://YOUR_QMSG_KEY"
+antigravity-notifier test
+antigravity-notifier install
+```
+
+---
+
 ## ⚡ 30 秒快速上手 (Quick Start)
 
 ### 步骤 1：设置你的推送渠道
@@ -163,7 +203,8 @@ antigravity-notifier/
 ├── src/
 │   ├── config.js            # 跨更新持久化配置管理器 (~/.gemini/config/notifier.json)
 │   ├── gateway.js           # 多通道推送网关 (QQ/微信/Bark/ntfy/Webhook 归一化派发)
-│   ├── monitor.js           # 原生 CDP 调试端口自适应发现与 DOM 状态观察器
+│   ├── monitor.js           # 原生存储与 CDP 双引擎任务状态观察器
+│   ├── transcript.js        # 原生 SQLite 数据库与 JSONL 任务会话解析器
 │   ├── service.js           # 四状态生命周期状态机、提问延时防打扰与自动审批抑制器
 │   └── index.js             # 模块 SDK 入口导出
 ├── test/
@@ -179,8 +220,8 @@ antigravity-notifier/
 
 1. **配置独立于软件目录**：
    大部分魔改在 IDE 安装目录下的脚本，在客户端自动更新升级时会被全量覆盖抹除。本工具将核心配置保存在 Windows 用户应用数据目录 `~/.gemini/config/notifier.json` 中，更新永远不会触碰。
-2. **生命周期完全解耦**：
-   本服务由本地 Node.js 驱动，作为系统级独立进程运行。无论 Antigravity 客户端如何重启、热更新或更新版本，后台守护进程都会通过 CDP 本地端口自适应重新挂载监听，完全无需重新安装。
+2. **原生存储 + CDP 双引擎解耦监听**：
+   本服务由本地 Node.js 驱动，作为系统级独立进程运行。它直接监听 Antigravity 原生落盘的 SQLite 状态库与日志流。即使反重力在客户端自动升级后未开放调试端口，或者用户从未加任何命令行参数正常启动，本地存储监听引擎依然能 **100% 稳定捕获任务状态**，完全无需重新安装或重新配置。
 
 ---
 
