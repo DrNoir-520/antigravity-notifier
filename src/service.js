@@ -217,6 +217,45 @@ class NotificationService {
     }
 
     /**
+     * Query Antigravity SQLite conversation database for authoritative run status.
+     * @param {string} convId
+     * @returns {{ isRunning: boolean, status: string, notFullyIdle: boolean } | null}
+     */
+    static getConversationDbStatus(convId) {
+        if (!convId || typeof convId !== 'string' || !/^[0-9a-f-]{36}$/i.test(convId)) {
+            return null;
+        }
+        try {
+            const candidates = [
+                path.join('C:\\Users\\Administrator', '.gemini', 'antigravity', 'conversation_summaries.db'),
+                path.join(process.env.USERPROFILE || '', '.gemini', 'antigravity', 'conversation_summaries.db'),
+                path.join(os.homedir(), '.gemini', 'antigravity', 'conversation_summaries.db')
+            ];
+            for (const dbPath of candidates) {
+                if (fs.existsSync(dbPath)) {
+                    const { DatabaseSync } = require('node:sqlite');
+                    const db = new DatabaseSync(dbPath, { open: true, readOnly: true });
+                    try {
+                        const stmt = db.prepare('SELECT status, not_fully_idle FROM conversation_summaries WHERE conversation_id = ? LIMIT 1');
+                        const row = stmt.get(convId.trim());
+                        if (row) {
+                            return {
+                                isRunning: (row.status === 'CASCADE_RUN_STATUS_RUNNING') || (row.not_fully_idle === 1),
+                                status: row.status || '',
+                                notFullyIdle: row.not_fully_idle === 1
+                            };
+                        }
+                    } finally {
+                        db.close();
+                    }
+                    break;
+                }
+            }
+        } catch (_) {}
+        return null;
+    }
+
+    /**
      * Get configured delay in seconds before sending push notification for a pending question.
      * Defaults to 4 seconds, or reads from config/environment variable QUESTION_NOTIFICATION_DELAY_SECONDS.
      * @returns {number}
@@ -543,7 +582,7 @@ class NotificationService {
         }
         convState.priorUserTurnId = priorUserTurnId;
         convState.lastNotifiedUserTurnId = priorUserTurnId;
-        convState.lastNotifiedTurnSignature = '';
+        // Retain convState.lastNotifiedTurnSignature so prior completed turns cannot re-trigger duplicate notifications
         if (this.onTaskStateChange) {
             this.onTaskStateChange(convState);
         }
@@ -609,16 +648,28 @@ class NotificationService {
             (lastModelTurn && Array.isArray(lastModelTurn.tools) && lastModelTurn.tools.some(t => t.name === 'ask_question'))
         );
         const isSuspendedForUser = Boolean(hasPendingQuestion || hasPendingProceed);
-        const effIsWorking = isSuspendedForUser ? false : isWorking;
+        const dbStatus = NotificationService.getConversationDbStatus(convId);
+        const isDbRunning = dbStatus ? dbStatus.isRunning : false;
+        const effIsWorking = isSuspendedForUser ? false : (isWorking || isDbRunning);
 
         if (taskState.status === 'pending_start') {
             if (isSuspendedForUser) {
                 taskState.hasObservedWork = true;
                 taskState.status = 'running';
                 console.log(`⚡ [Push-Debug] User action suspended (question/proceed) detected for conv "${convId}" during pending_start.`);
+            } else if (effIsWorking) {
+                taskState.hasObservedWork = true;
+                taskState.status = 'running';
+                taskState.isCancelled = false;
+                console.log(`⚡ [Push-Debug] Work detected for conv "${convId}". Status transitioning to running.`);
             } else if (Date.now() - (taskState.submittedAt || 0) > 90000) {
                 taskState.status = 'idle';
             }
+            // Under pending_start, execution has not settled yet; keep waiting
+            if (isCurrentActiveConv && this.onTaskStateChange) {
+                this.onTaskStateChange(taskState);
+            }
+            return taskState;
         }
 
         if (effIsWorking) {
@@ -634,6 +685,23 @@ class NotificationService {
                 taskState.settlingTimer = null;
             }
         } else if (taskState.status === 'running' || (taskState.hasObservedWork && taskState.status !== 'settling')) {
+            // Guard: Recent prompt submission cannot settle unless suspended for interactive user prompt
+            const minSubmitWaitMs = (typeof settlingDelayMs === 'number' && settlingDelayMs <= 500) ? 0 : 5000;
+            const timeSinceSubmit = Date.now() - (taskState.submittedAt || 0);
+            if (taskState.submittedAt > 0 && timeSinceSubmit < minSubmitWaitMs && !isSuspendedForUser) {
+                if (isCurrentActiveConv && this.onTaskStateChange) {
+                    this.onTaskStateChange(taskState);
+                }
+                return taskState;
+            }
+
+            // Invariant: The assistant turn MUST strictly follow the latest user prompt
+            if (!lastUserTurn || !lastModelTurn || lastModelIdx <= lastUserIdx) {
+                if (isCurrentActiveConv && this.onTaskStateChange) {
+                    this.onTaskStateChange(taskState);
+                }
+                return taskState;
+            }
             const hasPendingQuestion = Boolean(
                 pendingQuestion ||
                 (lastModelTurn && Array.isArray(lastModelTurn.tools) && lastModelTurn.tools.some(t => t.name === 'ask_question'))
@@ -763,6 +831,25 @@ class NotificationService {
                         : freshTurns.some(t => t.role === 'assistant' && Array.isArray(t.artifacts) && t.artifacts.some(a => a.canProceed && !a.proceeded));
 
                     const isSuspendedForUserAction = Boolean(isQuestionPending || isPlanApprovalPending);
+
+                    // Guard 0a: Verify prompt was not submitted within recent settling threshold
+                    const minSettlingWaitMs = (typeof settlingDelayMs === 'number' && settlingDelayMs <= 500) ? 0 : 5000;
+                    const settlingElapsed = Date.now() - (taskState.submittedAt || 0);
+                    if (taskState.submittedAt > 0 && settlingElapsed < minSettlingWaitMs && !isSuspendedForUserAction) {
+                        console.log(`⚠️ [Push-Debug] Guard 0a: prompt submitted too recently (${settlingElapsed}ms) for "${targetConvId}".`);
+                        taskState.status = 'running';
+                        if (isStillActiveInDom && this.onTaskStateChange) this.onTaskStateChange(taskState);
+                        return;
+                    }
+
+                    // Guard 0b: Check authoritative SQLite DB status
+                    const settlingDbStatus = NotificationService.getConversationDbStatus(targetConvId);
+                    if (settlingDbStatus && settlingDbStatus.isRunning && !isSuspendedForUserAction) {
+                        console.log(`⚠️ [Push-Debug] Guard 0b: SQLite reports conversation "${targetConvId}" is still running.`);
+                        taskState.status = 'running';
+                        if (isStillActiveInDom && this.onTaskStateChange) this.onTaskStateChange(taskState);
+                        return;
+                    }
 
                     // Guard 1: Verify this specific conversation has not resumed work
                     // Note: When waiting for user action (pending question or plan approval), Antigravity sidebar
