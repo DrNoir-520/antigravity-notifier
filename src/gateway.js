@@ -424,7 +424,7 @@ async function deliverPushNotification(options = {}, fetchFn = global.fetch) {
             barkUrl.searchParams.set('title', fullTitle);
             barkUrl.searchParams.set('body', plainBody);
             barkUrl.searchParams.set('group', 'antigravity');
-            barkUrl.searchParams.set('sound', 'minuet');
+            barkUrl.searchParams.set('sound', 'silence');
             barkUrl.searchParams.set('badge', '1');
             const res = await fetchFn(barkUrl.toString(), {
                 method: 'GET',
