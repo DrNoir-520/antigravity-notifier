@@ -354,7 +354,22 @@ class AntigravityMonitor {
 
             if (isWorking) {
                 if (taskState.status !== 'running') {
-                    this.service.armTaskPendingStart(c.convId);
+                    let lastUserTurn = null;
+                    if (Array.isArray(turns)) {
+                        for (let i = turns.length - 1; i >= 0; i--) {
+                            if (turns[i].role === 'user') {
+                                lastUserTurn = turns[i];
+                                break;
+                            }
+                        }
+                    }
+                    const currentUId = lastUserTurn ? lastUserTurn.id : '';
+                    if (currentUId && taskState.lastNotifiedUserTurnId === currentUId) {
+                        taskState.status = 'running';
+                        taskState.hasObservedWork = true;
+                    } else {
+                        this.service.armTaskPendingStart(c.convId, taskState.lastNotifiedUserTurnId || '');
+                    }
                 }
             }
 

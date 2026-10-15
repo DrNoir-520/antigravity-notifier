@@ -304,7 +304,91 @@ async function runAllTests() {
         assert.strictEqual(isConversationActivelyWorking(idleDbConv, userPromptOnlyTurns), true,
             'Should detect new prompt as active working even if DB is still marked IDLE');
 
+        // Case 5: Intermediate tool completed, but assistant has NOT produced final response text yet!
+        // In multi-step agent sessions, completing a tool call is just one step. The agent must continue.
+        // It must NEVER be treated as finished!
+        const intermediateToolTurns = [
+            { role: 'user', id: 'u3', text: 'Run multi-step refactor' },
+            { role: 'assistant', id: 'm3', text: '', isThinking: false, tools: [{ name: 'run_command', status: 'completed' }] }
+        ];
+        assert.strictEqual(isConversationActivelyWorking(staleDbConv, intermediateToolTurns), true,
+            'Intermediate tool completed without response text must be considered ACTIVELY WORKING');
+
         console.log('  ✅ [PASS] Stale database status correction and prompt detection verified');
+    }
+
+    // ---------------------------------------------------------------------------
+    // Test Suite 9: Single Notification per User Turn (No Intermediate Spams)
+    // ---------------------------------------------------------------------------
+    console.log('\nTest Suite 9: Single Notification per User Turn (No Intermediate Spams)');
+    {
+        let notificationDispatches = 0;
+        const mockGateway = {
+            notifyTaskEvent: async () => {
+                notificationDispatches++;
+                return { ok: true };
+            }
+        };
+
+        const service = new NotificationService({
+            config: { enabled: true, pushUrl: 'qmsg://mock' },
+            gateway: mockGateway
+        });
+
+        // Simulate multi-step tool execution within the same user prompt:
+        // Step 1: User asks question, model executes tool 1
+        service.armTaskPendingStart('conv-multi');
+        const intermediateTurns1 = [
+            { role: 'user', id: 'u_round1', text: 'Do multi-step task' },
+            { role: 'assistant', id: 'm_step1', text: '', isThinking: false, tools: [{ name: 'run_command', status: 'completed' }] }
+        ];
+
+        // Should NOT settle because model has no final text and tool is intermediate
+        service.evaluateConversationTaskLifecycle({
+            convId: 'conv-multi',
+            conv: { id: 'conv-multi', title: '多步任务' },
+            turns: intermediateTurns1,
+            isWorking: true, // Should remain working during intermediate tool execution
+            hasPendingProceed: false,
+            pendingQuestion: false,
+            settlingDelayMs: 10
+        });
+
+        // Step 2: Model outputs final response text
+        const finalTurns = [
+            { role: 'user', id: 'u_round1', text: 'Do multi-step task' },
+            { role: 'assistant', id: 'm_step2', text: 'All operations finished cleanly.', isThinking: false, tools: [] }
+        ];
+
+        service.evaluateConversationTaskLifecycle({
+            convId: 'conv-multi',
+            conv: { id: 'conv-multi', title: '多步任务' },
+            turns: finalTurns,
+            isWorking: false, // Finished!
+            hasPendingProceed: false,
+            pendingQuestion: false,
+            settlingDelayMs: 10
+        });
+
+        // Wait for settling timer
+        await new Promise(r => setTimeout(r, 30));
+        assert.strictEqual(notificationDispatches, 1, 'Exactly 1 notification should be dispatched for round 1');
+
+        // Step 3: Repeated check after completion must NOT fire another duplicate notification
+        service.evaluateConversationTaskLifecycle({
+            convId: 'conv-multi',
+            conv: { id: 'conv-multi', title: '多步任务' },
+            turns: finalTurns,
+            isWorking: false,
+            hasPendingProceed: false,
+            pendingQuestion: false,
+            settlingDelayMs: 10
+        });
+
+        await new Promise(r => setTimeout(r, 30));
+        assert.strictEqual(notificationDispatches, 1, 'Duplicate check must not trigger secondary notification for same turn');
+
+        console.log('  ✅ [PASS] Strict single notification per user turn verified without intermediate spam');
     }
 
     console.log('\n🎉 ALL ANTIGRAVITY NOTIFIER UNIT TESTS PASSED SUCCESSFULLY!\n');

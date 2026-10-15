@@ -641,19 +641,17 @@ class NotificationService {
             const isTaskCancelled = Boolean(taskState.isCancelled) && !hasPendingQuestion && !hasPendingProceed;
             const modelHasOutput = Boolean(
                 isTaskCancelled ||
-                lastModelTurn && (
-                    (typeof lastModelTurn.text === 'string' && lastModelTurn.text.trim().length > 0) ||
-                    (Array.isArray(lastModelTurn.tools) && lastModelTurn.tools.length > 0) ||
-                    (Array.isArray(lastModelTurn.artifacts) && lastModelTurn.artifacts.length > 0) ||
-                    hasPendingProceed ||
-                    hasPendingQuestion
-                )
+                hasPendingProceed ||
+                hasPendingQuestion ||
+                (lastModelTurn && typeof lastModelTurn.text === 'string' && lastModelTurn.text.trim().length > 0)
             );
 
             const isNewUserTurn = !taskState.priorUserTurnId || (lastUserTurn && lastUserTurn.id !== taskState.priorUserTurnId);
             const isExecutionPhase = Boolean(
                 !hasPendingProceed &&
                 !hasPendingQuestion &&
+                taskState.lastNotifiedTurnSignature &&
+                (taskState.lastNotifiedTurnSignature.includes('proceed_pending') || taskState.lastNotifiedTurnSignature.includes('question_pending')) &&
                 taskState.priorModelTurnId &&
                 lastModelTurn &&
                 lastModelTurn.id !== taskState.priorModelTurnId
@@ -797,13 +795,9 @@ class NotificationService {
                     const isTaskCancelled = Boolean(taskState.isCancelled) && !isQuestionPending && !isPlanApprovalPending;
                     const freshModelHasOutput = Boolean(
                         isTaskCancelled ||
-                        freshModel && (
-                            (typeof freshModel.text === 'string' && freshModel.text.trim().length > 0) ||
-                            (Array.isArray(freshModel.tools) && freshModel.tools.length > 0) ||
-                            (Array.isArray(freshModel.artifacts) && freshModel.artifacts.length > 0) ||
-                            isPlanApprovalPending ||
-                            isQuestionPending
-                        )
+                        isPlanApprovalPending ||
+                        isQuestionPending ||
+                        (freshModel && typeof freshModel.text === 'string' && freshModel.text.trim().length > 0)
                     );
 
                     if (!isTaskCancelled) {
@@ -851,6 +845,8 @@ class NotificationService {
                     const freshIsExecutionPhase = Boolean(
                         !isPlanApprovalPending &&
                         !isQuestionPending &&
+                        taskState.lastNotifiedTurnSignature &&
+                        (taskState.lastNotifiedTurnSignature.includes('proceed_pending') || taskState.lastNotifiedTurnSignature.includes('question_pending')) &&
                         taskState.priorModelTurnId &&
                         freshMId !== taskState.priorModelTurnId
                     );

@@ -339,15 +339,25 @@ function isConversationActivelyWorking(convMetadata, cachedTurns = null) {
             return true;
         }
 
-        // Empty assistant turn with no tools, artifacts, or text: Still initializing
+        // Check interactive question tool: If ask_question is present, assistant is waiting for user input
+        const hasQuestionTool = Array.isArray(lastModelTurn.tools) && lastModelTurn.tools.some(t => t.name === 'ask_question');
+        if (hasQuestionTool) {
+            return false;
+        }
+
+        // Check plan proceed: If plan artifact is waiting for user confirmation, assistant is suspended
+        const hasPendingProceed = Array.isArray(lastModelTurn.artifacts) && lastModelTurn.artifacts.some(a => a.canProceed && !a.proceeded);
+        if (hasPendingProceed) {
+            return false;
+        }
+
+        // Check final text response: Intermediate tools without concluding text indicate active execution
         const hasText = typeof lastModelTurn.text === 'string' && lastModelTurn.text.trim().length > 0;
-        const hasTools = Array.isArray(lastModelTurn.tools) && lastModelTurn.tools.length > 0;
-        const hasArtifacts = Array.isArray(lastModelTurn.artifacts) && lastModelTurn.artifacts.length > 0;
-        if (!hasText && !hasTools && !hasArtifacts) {
+        if (!hasText) {
             return true;
         }
 
-        // All tools completed, output present, not thinking: Task has genuinely finished its run!
+        // All tools completed, final response text present, not thinking: Task has genuinely finished its run!
         // Override stale database status (e.g. CASCADE_RUN_STATUS_RUNNING delayed write)
         return false;
     }
