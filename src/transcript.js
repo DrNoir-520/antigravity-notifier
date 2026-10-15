@@ -151,6 +151,7 @@ function getTranscriptTurns(convId, maxTailBytes = 524288) {
             const lines = rawText.trim().split('\n');
             const turns = [];
             let currentAssistantTurn = null;
+            let roundIndex = 0;
 
             for (const line of lines) {
                 if (!line.trim()) continue;
@@ -162,13 +163,14 @@ function getTranscriptTurns(convId, maxTailBytes = 524288) {
                 }
 
                 if (step.type === 'USER_INPUT') {
+                    roundIndex++;
                     if (currentAssistantTurn) {
                         turns.push(currentAssistantTurn);
                         currentAssistantTurn = null;
                     }
                     turns.push({
                         role: 'user',
-                        id: `turn-u-${convId}-${step.step_index || turns.length}`,
+                        id: `turn-u-${convId}-r${roundIndex}`,
                         text: typeof step.content === 'string' ? step.content : '',
                         stepIndex: step.step_index
                     });
@@ -176,14 +178,21 @@ function getTranscriptTurns(convId, maxTailBytes = 524288) {
                     if (!currentAssistantTurn) {
                         currentAssistantTurn = {
                             role: 'assistant',
-                            id: `turn-a-${convId}-${step.step_index || turns.length}`,
+                            id: `turn-a-${convId}-r${roundIndex}`,
                             text: '',
                             tools: [],
                             artifacts: [],
                             isThinking: false,
-                            stepIndex: step.step_index
+                            stepIndex: step.step_index,
+                            lastStepType: 'PLANNER_RESPONSE',
+                            lastStepHasTools: false,
+                            lastStepHasContent: false
                         };
                     }
+                    currentAssistantTurn.lastStepType = 'PLANNER_RESPONSE';
+                    currentAssistantTurn.lastStepHasTools = Array.isArray(step.tool_calls) && step.tool_calls.length > 0;
+                    currentAssistantTurn.lastStepHasContent = Boolean(typeof step.content === 'string' && step.content.trim().length > 0);
+
                     if (typeof step.content === 'string' && step.content) {
                         currentAssistantTurn.text = step.content;
                     }
@@ -207,6 +216,10 @@ function getTranscriptTurns(convId, maxTailBytes = 524288) {
                                 proceeded: true
                             });
                         }
+                    }
+                } else {
+                    if (currentAssistantTurn) {
+                        currentAssistantTurn.lastStepType = step.type || 'GENERIC';
                     }
                 }
             }
@@ -329,16 +342,6 @@ function isConversationActivelyWorking(convMetadata, cachedTurns = null) {
 
     // 2. Assistant turn exists
     if (lastModelTurn) {
-        // Assistant is still actively thinking
-        if (lastModelTurn.isThinking) {
-            return true;
-        }
-
-        // Assistant has incomplete/running background tools (except interactive ask_question)
-        if (Array.isArray(lastModelTurn.tools) && lastModelTurn.tools.some(t => t.status === 'running' && t.name !== 'ask_question')) {
-            return true;
-        }
-
         // Check interactive question tool: If ask_question is present, assistant is waiting for user input
         const hasQuestionTool = Array.isArray(lastModelTurn.tools) && lastModelTurn.tools.some(t => t.name === 'ask_question');
         if (hasQuestionTool) {
@@ -351,14 +354,34 @@ function isConversationActivelyWorking(convMetadata, cachedTurns = null) {
             return false;
         }
 
+        // Assistant is still actively thinking
+        if (lastModelTurn.isThinking) {
+            return true;
+        }
+
+        // Assistant has incomplete/running background tools (except interactive ask_question)
+        if (Array.isArray(lastModelTurn.tools) && lastModelTurn.tools.some(t => t.status === 'running' && t.name !== 'ask_question')) {
+            return true;
+        }
+
+        // If the last step in the transcript was an intermediate tool result (GENERIC) or tool call step,
+        // the assistant is actively executing intermediate tool phases
+        if (lastModelTurn.lastStepType && lastModelTurn.lastStepType !== 'PLANNER_RESPONSE') {
+            return true;
+        }
+        if (lastModelTurn.lastStepHasTools && !hasQuestionTool) {
+            return true;
+        }
+
         // Check final text response: Intermediate tools without concluding text indicate active execution
         const hasText = typeof lastModelTurn.text === 'string' && lastModelTurn.text.trim().length > 0;
         if (!hasText) {
             return true;
         }
 
-        // All tools completed, final response text present, not thinking: Task has genuinely finished its run!
-        // Override stale database status (e.g. CASCADE_RUN_STATUS_RUNNING delayed write)
+        // All tools completed, last step was a concluding response with no tools and final text,
+        // and not thinking: the task has genuinely finished its run!
+        // Overrides stale database status (e.g. CASCADE_RUN_STATUS_RUNNING delayed write)
         return false;
     }
 

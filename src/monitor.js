@@ -419,12 +419,27 @@ class AntigravityMonitor {
                     const convTitle = state.convTitle || '当前任务';
                     const projectName = state.projectName || '';
 
+                    const turns = getTranscriptTurns(convId);
                     if (state.isWorking && !this.lastObservedWorking) {
-                        this.service.armTaskPendingStart(convId);
+                        const taskState = this.service.getConvTaskState(convId);
+                        let lastUserTurn = null;
+                        if (Array.isArray(turns)) {
+                            for (let i = turns.length - 1; i >= 0; i--) {
+                                if (turns[i].role === 'user') {
+                                    lastUserTurn = turns[i];
+                                    break;
+                                }
+                            }
+                        }
+                        const currentUId = lastUserTurn ? lastUserTurn.id : '';
+                        if (!currentUId || taskState.lastNotifiedUserTurnId !== currentUId) {
+                            this.service.armTaskPendingStart(convId, taskState.lastNotifiedUserTurnId || '');
+                        } else {
+                            taskState.status = 'running';
+                            taskState.hasObservedWork = true;
+                        }
                     }
                     this.lastObservedWorking = Boolean(state.isWorking);
-
-                    const turns = getTranscriptTurns(convId);
                     this.service.evaluateConversationTaskLifecycle({
                         convId,
                         conv: {
